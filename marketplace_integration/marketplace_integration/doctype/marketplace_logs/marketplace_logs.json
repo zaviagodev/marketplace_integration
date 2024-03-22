@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-03-08 04:21:00.674095",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "order_id",
+  "shope_id",
+  "status",
+  "marketplace",
+  "buyer_id",
+  "sale_order"
+ ],
+ "fields": [
+  {
+   "fieldname": "order_id",
+   "fieldtype": "Data",
+   "label": "Order ID"
+  },
+  {
+   "fieldname": "shope_id",
+   "fieldtype": "Data",
+   "label": "Shop ID"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "marketplace",
+   "fieldtype": "Select",
+   "label": "Marketplace",
+   "options": "Shopee\nLazada"
+  },
+  {
+   "fieldname": "buyer_id",
+   "fieldtype": "Data",
+   "label": "Buyer ID"
+  },
+  {
+   "fieldname": "sale_order",
+   "fieldtype": "Link",
+   "label": "Sale Order",
+   "options": "Sales Order"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-03-20 11:23:58.662139",
+ "modified_by": "Administrator",
+ "module": "Marketplace Integration",
+ "name": "Marketplace Logs",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

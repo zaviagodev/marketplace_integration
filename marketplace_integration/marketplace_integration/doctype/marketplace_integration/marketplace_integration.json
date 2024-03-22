@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-02-28 20:40:10.871491",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "shopee_integration_tab",
+  "section_break_ejsz",
+  "column_break_srld",
+  "active_shopee",
+  "access_token",
+  "refresh_token_copy",
+  "shopee_code",
+  "shop_id",
+  "start_shopee_connection",
+  "lazada_tab",
+  "section_break_utoo",
+  "active_lazada",
+  "lazada_access_token",
+  "lazada_refresh_token",
+  "lazada_seller_id",
+  "start_lazada_connection"
+ ],
+ "fields": [
+  {
+   "depends_on": "eval:doc.active_shopee == 1",
+   "fieldname": "access_token",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Access Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "shopee_integration_tab",
+   "fieldtype": "Tab Break",
+   "label": "Shopee"
+  },
+  {
+   "fieldname": "section_break_ejsz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_srld",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "active_shopee",
+   "fieldtype": "Check",
+   "label": "Active Shopee"
+  },
+  {
+   "fieldname": "section_break_utoo",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "active_lazada",
+   "fieldtype": "Check",
+   "label": "Active Lazada"
+  },
+  {
+   "fieldname": "lazada_tab",
+   "fieldtype": "Tab Break",
+   "label": "Lazada"
+  },
+  {
+   "depends_on": "eval:doc.active_shopee == 1",
+   "fieldname": "refresh_token_copy",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Refresh Token",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.active_lazada == 1",
+   "fieldname": "lazada_access_token",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Access Token",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.active_lazada == 1",
+   "fieldname": "lazada_refresh_token",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Refresh Token",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.active_lazada == 1",
+   "fieldname": "start_lazada_connection",
+   "fieldtype": "Button",
+   "label": "Start Lazada Connection/Refresh Connection"
+  },
+  {
+   "depends_on": "eval:doc.active_shopee == 1",
+   "fieldname": "start_shopee_connection",
+   "fieldtype": "Button",
+   "label": "Start Shopee Connection/Refresh Connection"
+  },
+  {
+   "depends_on": "eval:doc.active_shopee == 1",
+   "fieldname": "shopee_code",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Code",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.active_shopee == 1",
+   "fieldname": "shop_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Shop ID",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.active_lazada == 1",
+   "fieldname": "lazada_seller_id",
+   "fieldtype": "Data",
+   "label": "Lazada Seller Id",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-03-18 15:48:35.186482",
+ "modified_by": "Administrator",
+ "module": "Marketplace Integration",
+ "name": "Marketplace integration",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

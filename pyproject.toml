@@ -1,0 +1,18 @@
+[project]
+name = "marketplace_integration"
+authors = [
+    { name = "zaviago", email = "nabeel@zaviago.com"}
+]
+description = "Shopee and lazada integration with frappe"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = ["pyshopee","lazop-sdk-rahmadafandi"]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+# These dependencies are only installed when developer mode is enabled
+[tool.bench.dev-dependencies]
+# package_name = "~=1.1.0"
