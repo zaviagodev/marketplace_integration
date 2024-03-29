@@ -132,25 +132,11 @@ app_license = "mit"
 
 # Scheduled Tasks
 # ---------------
-
-# scheduler_events = {
-#	"all": [
-#		"marketplace_integration.tasks.all"
-#	],
-#	"daily": [
-#		"marketplace_integration.tasks.daily"
-#	],
-#	"hourly": [
-#		"marketplace_integration.tasks.hourly"
-#	],
-#	"weekly": [
-#		"marketplace_integration.tasks.weekly"
-#	],
-#	"monthly": [
-#		"marketplace_integration.tasks.monthly"
-#	],
-# }
-
+scheduler_events = {
+	"hourly": [
+		"marketplace_integration.token_update.shopee_token_update"
+	]
+}
 # Testing
 # -------
 

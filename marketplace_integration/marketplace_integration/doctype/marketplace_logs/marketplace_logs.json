@@ -32,7 +32,7 @@
    "fieldname": "marketplace",
    "fieldtype": "Select",
    "label": "Marketplace",
-   "options": "Shopee\nLazada"
+   "options": "Shopee\nLazada\nWebsite"
   },
   {
    "fieldname": "buyer_id",
