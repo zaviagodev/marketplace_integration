@@ -135,7 +135,10 @@ app_license = "mit"
 scheduler_events = {
 	"hourly": [
 		"marketplace_integration.token_update.shopee_token_update"
-	]
+	],
+     "daily": [
+        "marketplace_integration.token_update.lazada_token_update"
+    ],
 }
 # Testing
 # -------

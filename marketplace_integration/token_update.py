@@ -1,5 +1,5 @@
 import frappe
-from marketplace_integration.lazada import Client
+from marketplace_integration.lazada import LazopClient, LazopRequest, Client
 
 
 
@@ -19,6 +19,28 @@ def shopee_token_update():
         doc = frappe.get_doc('Marketplace integration')
         doc.access_token=access_token
         doc.refresh_token_copy=refresh_token
+        doc.save(
+                ignore_permissions=True,
+                ignore_version=True
+        )
+        frappe.db.commit()
+
+@frappe.whitelist(allow_guest=True)
+def lazada_token_update():
+    partner_id = "112284"
+    partner_key = 'eRIs543RcqFoE9GXHA1BLEzOYUHDZJy0'
+    docSettings = frappe.get_single("Marketplace integration")
+    refresh_token = docSettings.get_password('lazada_refresh_token')
+
+    client = LazopClient('https://api.lazada.co.th/rest',partner_id,partner_key)
+    request = LazopRequest('/auth/token/refresh','GET')
+    request.add_api_param('refresh_token', refresh_token)
+    order_details = client.execute(request).body
+    access_token = order_details['access_token']
+    if access_token:
+        doc = frappe.get_doc('Marketplace integration')
+        doc.lazada_access_token = order_details['access_token']
+        doc.lazada_refresh_token = order_details['refresh_token']
         doc.save(
                 ignore_permissions=True,
                 ignore_version=True
