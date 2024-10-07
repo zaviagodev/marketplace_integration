@@ -223,7 +223,7 @@ class WcMarketplaceClient:
             taxs = self.get_listof_taxs()
             
             
-           
+            
             for item in order['line_items']:
                 pprice = item.get("subtotal")
                 total_tax = item.get("total_tax")
@@ -813,9 +813,8 @@ class ShopeeMarketplaceClient:
             #$totalz = $order["price"]+$shipping_price;
             
             taxs = self.get_listof_taxs()
-        
-        
-            for item in expenss['items']:
+
+            for item in order['item_list']:
                 pprice = item.get("model_discounted_price")
                 if not pprice:
                     pprice = item.get("model_original_price")
@@ -837,25 +836,28 @@ class ShopeeMarketplaceClient:
                 
                 new_order.append("items", {
                     "item_code": sku,
-                    "rate": pprice,
-                    "price_list_rate": pprice,
-                    "base_price_list_rate": pprice,
-                    "qty": item.get("quantity_purchased", 1),
-                    "custom_ifbundledeal": 1 if item.get("promotion_type") == "bundle_deal" else 0,
+                    "rate" : pprice,
+                    "price": pprice,
+                    "amount": pprice,
+                    "base_rate": pprice,
+                    "base_amount": pprice,
+                    "stock_uom_rate": pprice,
+                    "net_rate": pprice,
+                    "net_amount": pprice,
+                    "base_net_rate": pprice,
+                    "base_net_amount": pprice,
+                    "qty": 1
                 })
-
-            if expenss.get('voucher_from_seller', 0):
-                # new_order.append("custom_seller_voucher",{
-                #     "doctype": 'Seller Voucher List',
-                #     "voucher_name": 'Seller Discount',
-                #     "voucher_amount": expenss.get('voucher_from_seller', 0)
-                # })
-                new_order.discount_amount = expenss.get('voucher_from_seller', 0)
-
-        
-            if coin:
-                new_order.custom_shopee_coin = coin
-
+                
+                
+            if expense.get('voucher_from_seller', 0):
+                new_order.append("custom_seller_voucher",{
+                    "doctype": 'Seller Voucher List',
+                    "voucher_name": 'Seller Discount',
+                    "voucher_amount": expense.get('voucher_from_seller', 0)
+                })
+                new_order.discount_amount = expense.get('voucher_from_seller', 0)
+                
             if expense.get('voucher_from_shopee', 0):
                 new_order.custom_marketplace_discount = expense.get('voucher_from_shopee', 0)
                 
@@ -898,9 +900,6 @@ class ShopeeMarketplaceClient:
             new_order.marketplace_order_number = order['order_sn']
             for item in order['item_list']:
                 pprice = item.get("model_discounted_price")
-                if not pprice:
-                    pprice = item.get("model_original_price")
-
                 item_name = item['item_name']
                 new_order.append("items",{
                     "item": item_name[:140],
@@ -1508,13 +1507,21 @@ class LazadaMarketplaceClient:
             discounttotal = 0
             #$totalz = $order["price"]+$shipping_price;
             taxs = self.get_listof_taxs()
-
+            item_price = item.get('item_price')
+            paid_price = item.ge("paid_price")
             for item in order_items:
                 new_order.append("items", {
                     "item_code": item['sku'],
                     "rate" : item['item_price'],
-                    "price_list_rate" : item['item_price'],
-                    "base_price_list_rate" : item['item_price'],
+                    "price": item['item_price'],
+                    "amount": item['item_price'],
+                    "base_rate": item['item_price'],
+                    "base_amount": item['item_price'],
+                    "stock_uom_rate": item['item_price'],
+                    "net_rate": item['item_price'],
+                    "net_amount": item['item_price'],
+                    "base_net_rate": item['item_price'],
+                    "base_net_amount": item['item_price'],
                     "qty": 1
                 })
                 platform_voucher += item.get('voucher_platform', 0)
@@ -1523,6 +1530,10 @@ class LazadaMarketplaceClient:
                 
             ordertotal = float(order_details["price"]) + float(order_details["shipping_fee"])
             grand_total_marketplace = ordertotal-discounttotal
+
+        
+
+
             if seller_voucher:
                 new_order.discount_amount = seller_voucher
             for item in taxs:
@@ -1533,6 +1544,9 @@ class LazadaMarketplaceClient:
             new_order.custom_grand_total_marketplace = grand_total_marketplace
             new_order.custom_marketplace_taxes_and_charges = float(order_details["shipping_fee"])
             new_order.taxes_and_charges = 'Thailand Tax - Clinton'
+
+
+
             new_order.owner_department = "All Departments"
             new_order.sales_name = "Sales Team"
             new_order.marketplace_platform = "Lazada"
@@ -1673,7 +1687,6 @@ class LazadaMarketplaceClient:
             request.add_api_param('trade_order_id', ordersn)
             order_details = client.execute(request, accesstoken).body
             return order_details["data"]
-
 
     def get_order_info( self, ordersn):
         docSettings = frappe.get_single("Marketplace integration")
