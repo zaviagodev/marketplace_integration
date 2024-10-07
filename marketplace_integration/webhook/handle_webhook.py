@@ -138,8 +138,6 @@ class WcMarketplaceClient:
             new_order.marketplace_order_number = order.get('order_number', '')
             taxs = self.get_listof_taxs()
             
-            
-            
             for item in order['line_items']:
                 pprice = item.get("price")
                 total_tax = item.get("total_tax")
@@ -511,28 +509,29 @@ class ShopeeMarketplaceClient:
             taxs = self.get_listof_taxs()
 
             for item in order['item_list']:
-                pprice = item.get("model_discounted_price")
-                if not pprice:
-                    pprice = item.get("model_original_price")
-                    
-                    
+                quantity = item.ge("model_quantity_purchased")
+                discounted_price = item.get("model_discounted_price")
+                original_price = item.get("model_original_price")
+
+                total_amount = discounted_price * quantity
+
                 sku = item.get("item_sku")
                 if not sku:
                     sku = item.get("model_sku")
                     
                 new_order.append("items", {
                     "item_code": sku,
-                    "rate" : pprice,
-                    "price": pprice,
-                    "amount": pprice,
-                    "base_rate": pprice,
-                    "base_amount": pprice,
-                    "stock_uom_rate": pprice,
-                    "net_rate": pprice,
-                    "net_amount": pprice,
-                    "base_net_rate": pprice,
-                    "base_net_amount": pprice,
-                    "qty": 1
+                    "rate" : discounted_price,
+                    "price": original_price,
+                    "amount": total_amount,
+                    "base_rate": discounted_price,
+                    "base_amount": total_amount,
+                    "stock_uom_rate": original_price,
+                    "net_rate": discounted_price,
+                    "net_amount": total_amount ,
+                    "base_net_rate": discounted_price,
+                    "base_net_amount": total_amount,
+                    "qty": quantity
                 })
                 
                 
@@ -585,9 +584,6 @@ class ShopeeMarketplaceClient:
             new_order.marketplace_order_number = order['order_sn']
             for item in order['item_list']:
                 pprice = item.get("model_discounted_price")
-                if not pprice:
-                    pprice = item.get("model_original_price")
-
                 item_name = item['item_name']
                 new_order.append("items",{
                     "item": item_name[:140],
@@ -892,20 +888,21 @@ class LazadaMarketplaceClient:
 
             
             taxs = self.get_listof_taxs()
-
+            item_price = item.get('item_price')
+            paid_price = item.ge("paid_price")
             for item in order_items:
                 new_order.append("items", {
                     "item_code": item['sku'],
-                    "rate" : item['item_price'],
-                    "price": item['item_price'],
-                    "amount": item['item_price'],
-                    "base_rate": item['item_price'],
-                    "base_amount": item['item_price'],
-                    "stock_uom_rate": item['item_price'],
-                    "net_rate": item['item_price'],
-                    "net_amount": item['item_price'],
-                    "base_net_rate": item['item_price'],
-                    "base_net_amount": item['item_price'],
+                    "rate" : paid_price,
+                    "price": item_price,
+                    "amount": paid_price,
+                    "base_rate": paid_price,
+                    "base_amount": paid_price,
+                    "stock_uom_rate": item_price,
+                    "net_rate": paid_price,
+                    "net_amount": paid_price,
+                    "base_net_rate": paid_price,
+                    "base_net_amount": paid_price,
                     "qty": 1
                 })
                 platform_voucher += item.get('voucher_platform', 0)
@@ -914,10 +911,7 @@ class LazadaMarketplaceClient:
                 
 
             ordertotal = float(order_details["price"]) + float(order_details["shipping_fee"])
-            grand_total_marketplace = ordertotal-discounttotal
-
-        
-
+            grand_total_marketplace = ordertotal - discounttotal
 
             if seller_voucher:
                 new_order.append("custom_seller_voucher",{
@@ -939,8 +933,6 @@ class LazadaMarketplaceClient:
             new_order.discount_amount = seller_voucher
             new_order.custom_marketplace_taxes_and_charges = float(order_details["shipping_fee"])
             new_order.taxes_and_charges = 'Thailand Tax - Clinton'
-
-
 
             new_order.owner_department = "All Departments"
             new_order.sales_name = "Sales Team"
@@ -1063,7 +1055,7 @@ class LazadaMarketplaceClient:
             order_details = client.execute(request, accesstoken).body
             return order_details["data"]
 
-    def get_order_info( self, ordersn):
+    def get_order_info(self, ordersn):
         docSettings = frappe.get_single("Marketplace integration")
         accesstoken = docSettings.get_password('lazada_access_token')
         order_data = {}
