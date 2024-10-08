@@ -9,7 +9,7 @@ from urllib.parse import quote
 import urllib.parse
 from marketplace_integration.lazada import LazopClient, LazopRequest, Client
 from datetime import datetime
-from erpnext.selling.doctype.sales_order.sales_order import create_pick_list, make_sales_invoice
+from erpnext.selling.doctype.sales_order.sales_order import create_pick_list,make_sales_invoice
 from erpnext.stock.doctype.pick_list.pick_list import create_delivery_note
 from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from datetime import datetime, timedelta
@@ -160,7 +160,7 @@ class WcMarketplaceClient:
             new_order.insert(ignore_permissions=True)
             frappe.db.commit()
             return new_order.name
-
+        
     def create_payment_entry(self, ordersn):
         try:
             sales_invoice = frappe.get_doc("Sales Invoice", {"marketplace_order_number": ordersn})
@@ -206,6 +206,8 @@ class WcMarketplaceClient:
         return doc
 
     def create_sales_order(self, order, customer_key):
+        
+        
         try:
             existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_number']})
             return existing_doc.name
@@ -221,8 +223,7 @@ class WcMarketplaceClient:
 
             new_order.marketplace_order_number = order.get('order_number', '')
             taxs = self.get_listof_taxs()
-            
-            
+
             
             for item in order['line_items']:
                 pprice = item.get("subtotal")
@@ -273,8 +274,6 @@ class WcMarketplaceClient:
                 return None
 
 
-            
-
     def get_listof_taxs(self):
         doc = frappe.get_doc("Sales Taxes and Charges Template","Thailand Tax - Clinton")
         taxs = doc.taxes
@@ -287,11 +286,8 @@ class WcMarketplaceClient:
             if not exists:
                 return 0
             else:
-                # bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
-                # if bins:
                 return 1
-                # else:
-                #     return 0
+
 
 
     def inser_customer(self,order_data, buyer_id):
@@ -319,7 +315,7 @@ class WcMarketplaceClient:
                 return customer.name
         else:
             return "Guest"
-        
+
     def create_contact_for_customer(self,customer, address_data):
         address_data = address_data["billing_address"]
 
@@ -487,64 +483,6 @@ class ShopeeMarketplaceClient:
 
         return order
 
-        #sale_order = self.create_sales_order(ordersn,order,customer_key)
-        
-
-
-        if orderslist:
-            for order in orderslist:
-                ordersn = order["order_sn"]
-                order = self.shopee_order_details(ordersn)
-                
-                status = order["order_status"]
-
-                try:
-                    frappe.flags.mute_messages = True
-                    frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
-                    
-                except frappe.DoesNotExistError:
-                    frappe.flags.mute_messages = True
-                    customer_key =  self.inser_customer(order,order['buyer_user_id'])
-                    product = self.check_product_sku(order)
-                    if product:
-                        frappe.set_user("Administrator")  
-                        sale_order = self.create_sales_order(ordersn,order,customer_key)
-
-                        if status == 'READY_TO_SHIP':
-                            self.create_pack_list(sale_order)
-                        elif  status == 'PROCESSED':
-                            self.create_pack_list(sale_order)
-                            self.create_delivery_note(sale_order,ordersn)
-                            self.create_sales_invoice(sale_order)   
-                        elif  status == 'COMPLETED':
-                            self.create_pack_list(sale_order)
-                            self.create_delivery_note(sale_order,ordersn)
-                            self.create_sales_invoice(sale_order)   
-                            self.create_payment_entry(ordersn)
-                            self.create_purchase_invoice(ordersn,order)   
-                    else:
-                        self.create_order_issue(order,customer_key)
-
-        #return self.create_purchase_invoice(ordersn,order)   
-
-
-        
-        
-        
-        
-
-       
-
-
-        status = order["order_status"]
-
-        doc_list = frappe.get_list('Purchase Invoice', {'marketplace_order_number': ordersn})
-        for doc in doc_list:
-            frappe.db.delete('Purchase Invoice', doc["name"])
-
-        return self.create_purchase_invoice(ordersn,order)   
-
-
     def handle_shopee_status(self,ordersn,shop_id,status,log_name):
 
         frappe.flags.mute_exceptions = True
@@ -583,7 +521,7 @@ class ShopeeMarketplaceClient:
                             else:
                                 update_sale_invoice_remark(ordersn, "Completed")
                                 self.create_payment_entry(ordersn)
-                                self.create_purchase_invoice(ordersn,order)
+                                self.create_purchase_invoice(ordersn, order, payment_details)
 
         else:
             order_issue = self.create_order_issue(order,customer_key)
@@ -617,26 +555,26 @@ class ShopeeMarketplaceClient:
         shopee  = shopee.execute('payment/get_escrow_detail', "GET", kwargs)
         return shopee['response']["order_income"]
 
-    def create_purchase_invoice(self, ordersn,order):
-        expenss = self.get_payment_details(ordersn)
+
+
+    def create_purchase_invoice(self, ordersn, order, expense):
 
         grand_total = 0
         subside = 0
         discount_from_voucher_seller = 0
-        grand_total = expenss.get('order_selling_price', 0)
+        grand_total = expense.get('order_selling_price', 0)
         for item in order["item_list"]:
             discount_from_voucher_seller += float(item.get('discount_from_voucher_seller', 0))
-        
-        
-        commison_fee = expenss["commission_fee"]
-        servicefee = expenss["service_fee"]
-        transaction_fee = expenss["credit_card_transaction_fee"]
+
+        commison_fee = expense["commission_fee"]
+        servicefee = expense["service_fee"]
+        transaction_fee = expense["credit_card_transaction_fee"]
         service_charges = commison_fee+servicefee+transaction_fee
         
-        buyer_paid_shipping_fee = expenss["buyer_paid_shipping_fee"]
-        actual_shipping_fee = expenss["actual_shipping_fee"]
-        shopee_shipping_rebate = expenss["shopee_shipping_rebate"]
-        original_shopee_discount = expenss["original_shopee_discount"]
+        buyer_paid_shipping_fee = expense["buyer_paid_shipping_fee"]
+        actual_shipping_fee = expense["actual_shipping_fee"]
+        shopee_shipping_rebate = expense["shopee_shipping_rebate"]
+        original_shopee_discount = expense["original_shopee_discount"]
         
         ordershipping = abs(actual_shipping_fee)-abs(shopee_shipping_rebate)-abs(buyer_paid_shipping_fee)
         
@@ -649,15 +587,12 @@ class ShopeeMarketplaceClient:
         service_fee = first + ordershipping - f_total
 
         service_charges = service_charges - original_shopee_discount
-        service_charges = service_charges+expenss.get('order_ams_commission_fee', 0)
+        service_charges = service_charges + expense.get('order_ams_commission_fee', 0)
         
 
         
         
-        shopping_f = expenss["shopee_shipping_rebate"] +  expenss["buyer_paid_shipping_fee"] - expenss["actual_shipping_fee"]
-
-    
-
+        shopping_f = expense["shopee_shipping_rebate"] +  expense["buyer_paid_shipping_fee"] - expense["actual_shipping_fee"]
         if shopping_f > 0:
             shopping_f = -shopping_f  # Convert positive to negative
         elif shopping_f < 0:
@@ -716,10 +651,10 @@ class ShopeeMarketplaceClient:
                 frappe.db.commit()
                 #doc.submit()
                 return doc
-        except frappe.DoesNotExistError:
-            pass
+
         except frappe.DuplicateEntryError:
             return sales_invoice
+
 
 
     def create_sales_invoice(self, sale_order):
@@ -743,7 +678,7 @@ class ShopeeMarketplaceClient:
         except frappe.DoesNotExistError:
             pass
 
-    def create_pick_list(self,sale_order):
+    def create_pick_list(self, sale_order):
         sales_order = frappe.get_doc("Sales Order", sale_order)
         unavailable_items = []
         for item in sales_order.items:
@@ -763,37 +698,13 @@ class ShopeeMarketplaceClient:
 
         return unavailable_items
 
+    def create_sales_order(self, ordersn, order, customer_key, expense):
     
-    
-    
-    def get_bundle_deal_info(self,item):
-         
-        return item
-        
-        partner_id = int(2004610)
-        partner_key = "da22ac428afd591add1e4a988eaff7b7981d66980b19323d7d5a5c19116e575a"
-        shop_id = int(213497319)
-
-        docSettings = frappe.get_single("Marketplace integration")
-        accesstoken = docSettings.get_value('access_token')
-        kwargs = {
-            'item_id_list': item["item_id"]
-        }
-        shopee  = Client(shop_id, partner_id, partner_key, accesstoken)
-        shopee.set_access_token(accesstoken)
-        shopee  = shopee.execute('product/get_item_promotion', "GET", kwargs)
-        pormotionid = shopee["response"]["success_list"][0]["promotion"]
-        return pormotionid
-        
-        return item
-    
-    
-    def create_sales_order(self, ordersn,order, customer_key, expense):
-        
-        if frappe.db.exists("Sales Order", {"marketplace_order_number": order['order_sn']}):
-            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": ordersn})
+        try:
+            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
             return existing_doc.name
-        except frappe.DoesNotExistError:
+        else:
+            expense = self.get_payment_details(ordersn)
             new_order = frappe.new_doc('Sales Order')
             new_order.customer = customer_key
 
@@ -804,7 +715,7 @@ class ShopeeMarketplaceClient:
 
             new_order.marketplace_order_number = order.get('order_sn', '')
 
-            coin = expenss.get('coins', 0)
+            coin = expense.get('coins', 0)
 
             platform_voucher = 0
             seller_voucher = 0
@@ -815,54 +726,48 @@ class ShopeeMarketplaceClient:
             taxs = self.get_listof_taxs()
 
             for item in order['item_list']:
-                pprice = item.get("model_discounted_price")
-                if not pprice:
-                    pprice = item.get("model_original_price")
-                    
-                    
+                quantity = item.ge("model_quantity_purchased")
+                discounted_price = item.get("model_discounted_price")
+                original_price = item.get("model_original_price")
+
+                total_amount = discounted_price * quantity
+
                 sku = item.get("item_sku")
                 if not sku:
                     sku = item.get("model_sku")
-                    
-                
-                if item.get("discounted_price"):
-                    pprice = item.get("discounted_price") / item.get("quantity_purchased",1)  
-                   
-                pprice = round(pprice,2)
-                
-                if item.get("promotion_type"):
-                    promotion_type = item.get("promotion_type") 
-                
-                
                 new_order.append("items", {
                     "item_code": sku,
-                    "rate" : pprice,
-                    "price": pprice,
-                    "amount": pprice,
-                    "base_rate": pprice,
-                    "base_amount": pprice,
-                    "stock_uom_rate": pprice,
-                    "net_rate": pprice,
-                    "net_amount": pprice,
-                    "base_net_rate": pprice,
-                    "base_net_amount": pprice,
-                    "qty": 1
+                    "rate" : discounted_price,
+                    "price": original_price,
+                    "amount": total_amount,
+                    "base_rate": discounted_price,
+                    "base_amount": total_amount,
+                    "stock_uom_rate": original_price,
+                    "net_rate": discounted_price,
+                    "net_amount": total_amount ,
+                    "base_net_rate": discounted_price,
+                    "base_net_amount": total_amount,
+                    "qty": quantity
+                    "custom_ifbundledeal": 1 if item.get("promotion_type") == "bundle_deal" else 0
                 })
                 
                 
             if expense.get('voucher_from_seller', 0):
-                new_order.append("custom_seller_voucher",{
-                    "doctype": 'Seller Voucher List',
-                    "voucher_name": 'Seller Discount',
-                    "voucher_amount": expense.get('voucher_from_seller', 0)
-                })
+                # new_order.append("custom_seller_voucher",{
+                #     "doctype": 'Seller Voucher List',
+                #     "voucher_name": 'Seller Discount',
+                #     "voucher_amount": expense.get('voucher_from_seller', 0)
+                # })
                 new_order.discount_amount = expense.get('voucher_from_seller', 0)
-                
+
+        if coin:
+            new_order.custom_shopee_coin = coin
+
             if expense.get('voucher_from_shopee', 0):
                 new_order.custom_marketplace_discount = expense.get('voucher_from_shopee', 0)
                 
                 
-            new_order.custom_marketplace_taxes_and_charges = float(expenss.get('buyer_paid_shipping_fee', 0))
+            new_order.custom_marketplace_taxes_and_charges = float(expense.get('buyer_paid_shipping_fee', 0))
                 
             new_order.custom_grand_total_marketplace = order.get('total_amount', '')
                 
@@ -889,6 +794,7 @@ class ShopeeMarketplaceClient:
         taxs = doc.taxes
         return taxs
 
+
     def create_order_issue(self, order, customer_key):
         try:
             existing_doc = frappe.get_doc("Marketplace order Issue", {"marketplace_order_number": order['order_sn']})
@@ -900,6 +806,9 @@ class ShopeeMarketplaceClient:
             new_order.marketplace_order_number = order['order_sn']
             for item in order['item_list']:
                 pprice = item.get("model_discounted_price")
+                if not pprice:
+                    pprice = item.get("model_original_price")
+
                 item_name = item['item_name']
                 new_order.append("items",{
                     "item": item_name[:140],
@@ -959,7 +868,6 @@ class ShopeeMarketplaceClient:
         address_data = order["recipient_address"]
         name = address_data['name']
 
-
         contact = frappe.get_doc({
             "doctype": "Contact",
             "first_name": name,
@@ -979,12 +887,22 @@ class ShopeeMarketplaceClient:
         contact.insert(ignore_permissions=True)
         frappe.db.commit()
         return contact
+    
 
     def ced_shopee_get_signature(self,action='', time='', token='', shopid=''):
         base_string = f'2004610/api/v2/{action}{time}{token}{shopid}'
         secret_key = 'da22ac428afd591add1e4a988eaff7b7981d66980b19323d7d5a5c19116e575a'
         signature = hmac.new(secret_key.encode('utf-8'), base_string.encode('utf-8'), hashlib.sha256).hexdigest()
         return signature
+    
+
+
+
+
+
+
+
+    
 
     def shopee_order_details(self,ordersn):
         partner_id = int(2004610)
@@ -1001,6 +919,7 @@ class ShopeeMarketplaceClient:
         shopee.set_access_token(accesstoken)
         shopee  = shopee.execute("order/get_order_detail", "GET", kwargs)
         return shopee['response']['order_list'][0]
+
 
 @frappe.whitelist(allow_guest=True)
 def handle_delay_event_lazada(ordersn,shop_id,status,buyer_id,log_name):
@@ -1149,8 +1068,6 @@ class LazadaMarketplaceClient:
             order_items = json.loads(order_info.get('order_items', '[]'))
             order_details = order_details_json.get('data', '[]')
             order_items = order_items.get('data', '[]')
-            
-
 
             buyer_id = order_items[0].get('buyer_id', '')
             status = order_items[0].get('status', '')
@@ -1317,9 +1234,7 @@ class LazadaMarketplaceClient:
                         frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order.name)
                         sale_order_status = frappe.db.get_value("Sales Order", sale_order.name , ["status"])
                         if status.lower() == 'pending':
-                            unavailable_items = self.create_pick_list(sales_order.name)
-                            if unavailable_items:
-                                create_marketplace_log("Lazada", ordersn, "pending", shop_id, buyer_id, unavailable_items)
+                            self.create_pack_list(sale_order.name)
                         elif  status.lower() == 'ready_to_ship':
                             self.create_delivery_note(sale_order.name,ordersn)
                             self.create_sales_invoice(sale_order.name)   
@@ -1328,10 +1243,12 @@ class LazadaMarketplaceClient:
                                 self.create_payment_entry(ordersn)
                                 #self.create_purchase_invoice_lazada(ordersn)
 
+
             else:
                 order_issue = self.create_order_issue(order_details,order_items,customer_key)
                 if order_issue:
                     frappe.db.set_value('Marketplace Logs', log_name, 'custom_sale_order_issue', order_issue)
+ 
 
     def create_purchase_invoice_lazada(self, ordersn):
         
@@ -1507,8 +1424,7 @@ class LazadaMarketplaceClient:
             discounttotal = 0
             #$totalz = $order["price"]+$shipping_price;
             taxs = self.get_listof_taxs()
-            item_price = item.get('item_price')
-            paid_price = item.ge("paid_price")
+
             for item in order_items:
                 new_order.append("items", {
                     "item_code": item['sku'],
@@ -1527,7 +1443,7 @@ class LazadaMarketplaceClient:
                 platform_voucher += item.get('voucher_platform', 0)
                 seller_voucher += item.get('voucher_seller', 0)
                 discounttotal += item.get('voucher_amount', 0)
-                
+        
             ordertotal = float(order_details["price"]) + float(order_details["shipping_fee"])
             grand_total_marketplace = ordertotal-discounttotal
 
