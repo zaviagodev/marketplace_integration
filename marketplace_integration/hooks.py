@@ -103,7 +103,7 @@ app_license = "mit"
 # Permissions evaluated in scripted ways
 
 # permission_query_conditions = {
-#	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
+# 	"Marketplace order Issue": "marketplace_integration.soft_delete.todo_query",
 # }
 #
 # has_permission = {
@@ -134,11 +134,19 @@ app_license = "mit"
 # ---------------
 scheduler_events = {
 	"hourly": [
-		"marketplace_integration.token_update.shopee_token_update"
+		"marketplace_integration.token_update.shopee_token_update",
+        "marketplace_integration.webhook.handle_webhook.handle_delay_event_shopee_queue",
+        "marketplace_integration.webhook.handle_webhook.handle_delay_event_lazada_queue"
 	],
      "daily": [
         "marketplace_integration.token_update.lazada_token_update"
     ],
+    "cron": {
+        "*/30 * * * *": [
+            "marketplace_integration.webhook.handle_webhook.handle_delay_event_shopee_queue",
+            "marketplace_integration.webhook.handle_webhook.handle_delay_event_lazada_queue"
+        ]
+    }
 }
 # Testing
 # -------
