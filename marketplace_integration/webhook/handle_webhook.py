@@ -14,9 +14,67 @@ from erpnext.stock.doctype.pick_list.pick_list import create_delivery_note
 from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from datetime import datetime, timedelta
 import hmac
+import pytz
 
 
+@frappe.whitelist(allow_guest=True)
+def handle_delay_event_shopee_queue():
+    bangkok_timezone = pytz.timezone('Asia/Bangkok')
+    current_time = datetime.now(bangkok_timezone)
+    one_hour_ago = current_time - timedelta(hours=1)
+    one_hour_ago_str = one_hour_ago.strftime("%Y-%m-%d %H:%M:%S")
+    pending_jobs = frappe.get_all("Marketplace Logs", filters={
+        "status": "COMPLETED",
+        "custom_job_completed": 0,
+        "marketplace": "Shopee",
+        "creation": ["<", one_hour_ago_str]
+    }, fields=["name", "order_id", "status", "shope_id", "creation"])
 
+    if pending_jobs:
+        for job in pending_jobs:
+            try:
+                frappe.enqueue('marketplace_integration.webhook.handle_webhook.handle_delay_event_shopee', 
+                               queue='short', 
+                               ordersn=job.order_id, 
+                               shop_id=job.shope_id, 
+                               status=job.status, 
+                               log_name=job.name)
+                
+
+                frappe.db.set_value("Marketplace Logs", job.name, "custom_job_completed", 1)
+                frappe.logger().info(f"Processed job for order_id: {job.order_id}")
+            except Exception as e:
+                frappe.logger().error(f"Error processing job {job.name}: {str(e)}")
+
+
+@frappe.whitelist(allow_guest=True)
+def handle_delay_event_lazada_queue():
+    bangkok_timezone = pytz.timezone('Asia/Bangkok')
+    current_time = datetime.now(bangkok_timezone)
+    one_hour_ago = current_time - timedelta(hours=1)
+    one_hour_ago_str = one_hour_ago.strftime("%Y-%m-%d %H:%M:%S")
+    pending_jobs = frappe.get_all("Marketplace Logs", filters={
+        "status": "DELIVERED",
+        "custom_job_completed": 0,
+        "marketplace": "Lazada",
+        "creation": ["<", one_hour_ago_str]
+    }, fields=["name", "order_id", "status", "shope_id", "creation"])
+
+    if pending_jobs:
+        for job in pending_jobs:
+            try:
+                frappe.enqueue('marketplace_integration.webhook.handle_webhook.handle_delay_event_lazada', 
+                               queue='short', 
+                               ordersn=job.order_id, 
+                               shop_id=job.shope_id, 
+                               buyer_id=job.shope_id, 
+                               status=job.status, 
+                               log_name=job.name)
+                
+                frappe.db.set_value("Marketplace Logs", job.name, "custom_job_completed", 1)
+                frappe.logger().info(f"Processed job for order_id: {job.order_id}")
+            except Exception as e:
+                frappe.logger().error(f"Error processing job {job.name}: {str(e)}")
 
 @frappe.whitelist(allow_guest=True)
 def push_wc_webhook(**kwargs):
@@ -44,6 +102,9 @@ class WcMarketplaceClient:
 
     def handle_wc_status(self, ordersn, status, order_data, buyer_id, log_name):
         customer_key = self.inser_customer(order_data, buyer_id)
+        if customer_key:
+            frappe.db.set_value('Marketplace Logs', log_name, 'custom_customer', customer_key)
+        
         product = self.check_product_sku(order_data)
         if product:
             frappe.set_user("Administrator")  
@@ -105,6 +166,7 @@ class WcMarketplaceClient:
     def create_sales_invoice(self, sale_order):
         doc = make_sales_invoice(sale_order,ignore_permissions=True)
         doc.custom_channel = "Shopee"
+        doc.additional_discount_account = "4170-00 SALES DISCOUNT"
         doc.insert(ignore_permissions=True)
         doc.submit()
         frappe.db.commit()
@@ -136,43 +198,45 @@ class WcMarketplaceClient:
             existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_number']})
             return existing_doc.name
         except frappe.DoesNotExistError:
+
             new_order = frappe.new_doc('Sales Order')
             new_order.customer = customer_key
-            new_order.delivery_date = datetime.now().date()
+
+
+            current_date = datetime.now().date()
+            delivery_date = current_date + timedelta(days=2)
+            new_order.delivery_date = delivery_date
+
             new_order.marketplace_order_number = order.get('order_number', '')
             taxs = self.get_listof_taxs()
             
             
-            
+           
             for item in order['line_items']:
-                pprice = item.get("price")
+                pprice = item.get("subtotal")
                 total_tax = item.get("total_tax")
-                pprice = pprice+total_tax
+                pprice = pprice
                 sku = item.get("sku")
                 new_order.append("items", {
                     "item_code": sku,
                     "rate" : pprice,
-                    "price": pprice,
-                    "amount": pprice,
-                    "base_rate": pprice,
-                    "base_amount": pprice,
-                    "stock_uom_rate": pprice,
-                    "net_rate": pprice,
-                    "net_amount": pprice,
-                    "base_net_rate": pprice,
-                    "base_net_amount": pprice,
+                    "price_list_rate" : pprice,
+                    "base_price_list_rate" : pprice,
                     "qty":  item['quantity']
                 })
                 
-                
+            
             coupons_amount = 0
             if order.get("coupon_lines"):
                 for item in order.get("coupon_lines", []): 
                     coupons_amount += float(item.get("amount"))
                     
-                new_order.discount_amount = coupons_amount
+                if coupons_amount:
+                    new_order.discount_amount = coupons_amount
                 
-                
+
+           
+
             for item in taxs:
                 new_order.append("taxes",item)
             if order.get('shipping_lines'):
@@ -187,10 +251,17 @@ class WcMarketplaceClient:
             new_order.owner_department = "All Departments"
             new_order.sales_name = "Sales Team"
             new_order.marketplace_platform = "Website"
-            new_order.insert(ignore_permissions=True)
-            new_order.submit()
-            frappe.db.commit()
-            return new_order.name
+            new_order.selling_price_list = "Website"
+            try:
+                new_order.insert(ignore_permissions=True)
+                new_order.submit()
+                frappe.db.commit()
+                return new_order.name
+            except frappe.DuplicateEntryError:
+                return None
+
+
+            
 
     def get_listof_taxs(self):
         doc = frappe.get_doc("Sales Taxes and Charges Template","Thailand Tax - Clinton")
@@ -204,37 +275,42 @@ class WcMarketplaceClient:
             if not exists:
                 return 0
             else:
-                bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
-                if bins:
-                    return 1
-                else:
-                    return 0
+                # bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
+                # if bins:
+                return 1
+                # else:
+                #     return 0
 
 
     def inser_customer(self,order_data, buyer_id):
-        try:
-            existing_customer = frappe.get_doc("Customer", {"marketplace_buyer_id": buyer_id})
-            return existing_customer.name
-        except frappe.DoesNotExistError:
-            address_data = order_data["billing_address"]
-            name = address_data['first_name'] +" "+ address_data['last_name']
 
-            customer = frappe.get_doc({
-                "doctype": "Customer",
-                "full_name": name,
-                "customer_name": name,
-                "customer_group": "All Customer Groups",
-                "territory": "Thailand",
-                "marketplace_buyer_id": buyer_id
-            })
-            customer.insert(
-                ignore_permissions=True
-            )
-            frappe.db.commit()
-            self.create_contact_for_customer(customer.name, address_data)
-            return customer.name
+        if buyer_id:
+            try:
+                existing_customer = frappe.get_doc("Customer", {"marketplace_buyer_id": buyer_id})
+                return existing_customer.name
+            except frappe.DoesNotExistError:
+                address_data = order_data["billing_address"]
+                name = address_data['first_name'] +" "+ address_data['last_name']
+                customer = frappe.get_doc({
+                    "doctype": "Customer",
+                    "full_name": str(name),
+                    "customer_name": "WEB-"+str(buyer_id),
+                    "customer_group": "Website",
+                    "territory": "Thailand",
+                    "marketplace_buyer_id": buyer_id
+                })
+                customer.insert(
+                    ignore_permissions=True
+                )
+                frappe.db.commit()
+                #self.create_contact_for_customer(customer.name, address_data)
+                return customer.name
+        else:
+            return "Guest"
         
     def create_contact_for_customer(self,customer, address_data):
+        address_data = address_data["billing_address"]
+
         contact = frappe.get_doc({
             "doctype": "Contact",
             "first_name": address_data['first_name'],
@@ -252,22 +328,138 @@ class WcMarketplaceClient:
                 'phone':  address_data["phone"],
         })
         contact.insert(ignore_permissions=True)
+
+
+        address = frappe.get_doc({
+            "doctype": "Address",
+            "address_line1": address_data["address_1"],
+            "phone": address_data["phone"],
+            "address_type": "Shipping",
+            "city": "-",
+        })
+        address.append('links', {
+                'link_doctype': 'Customer',
+                'link_name': customer
+        })
+        address.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+
+
         frappe.db.commit()
         return contact
+    
+@frappe.whitelist(allow_guest=True)
+def handle_delay_event_shopee(ordersn,shop_id,status,log_name):
+    frappe.logger().info(f"Handling completed order: {ordersn}")
+    connect = ShopeeMarketplaceClient()	
+    return connect.handle_shopee_order_status ( ordersn,shop_id,status,log_name)
 
 @frappe.whitelist(allow_guest=True)
 def push_shopee_webhook(ordersn,shop_id,status):
-    try:
+
+    
+    if status != "COMPLETED":
+        try:
+            contact = frappe.new_doc("Marketplace Logs")
+            contact.order_id = ordersn
+            contact.status = status
+            contact.shope_id = shop_id
+            contact.marketplace = "Shopee"
+            contact.custom_job_completed = 1
+            contact.insert(ignore_permissions=True)
+            frappe.db.commit()
+            connect = ShopeeMarketplaceClient()	
+            return connect.handle_shopee_order_status ( ordersn,shop_id,status,contact.name)
+        except Exception:
+            pass
+    else:
         contact = frappe.new_doc("Marketplace Logs")
         contact.order_id = ordersn
         contact.status = status
         contact.shope_id = shop_id
         contact.marketplace = "Shopee"
+        contact.custom_job_completed = 0
         contact.insert(ignore_permissions=True)
-        connect = ShopeeMarketplaceClient()	
-        return connect.handle_shopee_order_status ( ordersn,shop_id,status,contact.name)
-    except Exception:
-        pass
+        frappe.db.commit()
+
+@frappe.whitelist(allow_guest=True)
+def feach_shopee_orders(**kwargs):
+    # frappe.set_user("Administrator")  
+    # dd = frappe.db.get_list('Sales Order',
+    #     filters={
+    #         'item_code': 'SELLER_VOUCHER',
+    #         'marketplace_platform': 'Shopee'
+    #     },
+    #     fields=['marketplace_order_number'],
+    #     as_list=True
+    # )
+
+   
+    # return  dd
+
+    connect = ShopeeMarketplaceClient()
+
+    orderno = kwargs["order"]
+    if ',' in kwargs["order"]:
+        order_numbers = orderno.split(',') 
+        results = []
+        for order_number in order_numbers:
+            result = connect.handle_feach_shopee_orders(order_number.strip()) 
+            if result == 1:
+                results.append(order_number)
+
+        return results
+    else:
+        return connect.handle_feach_shopee_orders(orderno.strip())
+
+
+
+
+@frappe.whitelist(allow_guest=True)
+def get_shopee_order_info(order_number):
+    connect = ShopeeMarketplaceClient()
+    result = connect.handle_feach_shopee_orders(order_number.strip()) 
+    return result
+
+
+@frappe.whitelist(allow_guest=True)
+def get_shopee_orders_list(**kwargs):
+    frappe.set_user("Administrator")  
+    partner_id = int(2004610)
+    partner_key = "da22ac428afd591add1e4a988eaff7b7981d66980b19323d7d5a5c19116e575a"
+    shop_id = int(213497319)
+    docSettings = frappe.get_single("Marketplace integration")
+    accesstoken = docSettings.get_value('access_token')
+    time_from = datetime(2024, 4, 1).timestamp()
+    time_to = datetime(2024, 4, 15).timestamp()
+    kwargs = {
+        'time_range_field': 'create_time',
+        'time_from': int(time_from),
+        'time_to': int(time_to),
+        'page_size': 100,
+        'cursor': kwargs["pageno"],
+    }
+    shopee  = Client(shop_id, partner_id, partner_key, accesstoken)
+    shopee.set_access_token(accesstoken)
+    shopee  = shopee.execute("order/get_order_list", "GET", kwargs)
+
+    orderslist =  shopee["response"]["order_list"]
+
+    connect = ShopeeMarketplaceClient()
+    results = []
+    if orderslist:
+            for order in orderslist:
+                ordersn = order["order_sn"]
+                #order = connect.shopee_order_details(ordersn)
+                #status = order["order_status"]
+                doc_list = frappe.get_list('Payment Entry', {'reference_no': ordersn})
+                for doc in doc_list:
+                    frappe.db.delete('Payment Entry', doc["name"])
+                results.append(ordersn)
+
+    return results
+
 
 
 
@@ -277,35 +469,167 @@ class ShopeeMarketplaceClient:
     
 
 
-    def handle_shopee_status(self,ordersn,shop_id,status,log_name):
+    def handle_feach_shopee_orders(self,orderno):
+        ordersn = orderno
+        frappe.set_user("Administrator")  
+        order = self.shopee_order_details(ordersn)
+        expenss = self.get_payment_details(ordersn)
+
+        return  order
+
+        #sale_order = self.create_sales_order(ordersn,order,customer_key)
+
 
         
 
+
+        if orderslist:
+            for order in orderslist:
+                ordersn = order["order_sn"]
+                order = self.shopee_order_details(ordersn)
+                
+                status = order["order_status"]
+
+                try:
+                    frappe.flags.mute_messages = True
+                    frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
+                    
+                except frappe.DoesNotExistError:
+                    frappe.flags.mute_messages = True
+                    customer_key =  self.inser_customer(order,order['buyer_user_id'])
+                    product = self.check_product_sku(order)
+                    if product:
+                        frappe.set_user("Administrator")  
+                        sale_order = self.create_sales_order(ordersn,order,customer_key)
+
+                        if status == 'READY_TO_SHIP':
+                            self.create_pack_list(sale_order)
+                        elif  status == 'PROCESSED':
+                            self.create_pack_list(sale_order)
+                            self.create_delivery_note(sale_order,ordersn)
+                            self.create_sales_invoice(sale_order)   
+                        elif  status == 'COMPLETED':
+                            self.create_pack_list(sale_order)
+                            self.create_delivery_note(sale_order,ordersn)
+                            self.create_sales_invoice(sale_order)   
+                            self.create_payment_entry(ordersn)
+                            self.create_purchase_invoice(ordersn,order)   
+                    else:
+                        self.create_order_issue(order,customer_key)
+
+        #return self.create_purchase_invoice(ordersn,order)   
+
+
+        
+        
+        
+        
+
+       
+
+
+        status = order["order_status"]
+
+        doc_list = frappe.get_list('Purchase Invoice', {'marketplace_order_number': ordersn})
+        for doc in doc_list:
+            frappe.db.delete('Purchase Invoice', doc["name"])
+
+        return self.create_purchase_invoice(ordersn,order)   
+
+
+        try:
+            frappe.flags.mute_messages = True
+            frappe.get_doc("Purchase Invoice", {"marketplace_order_number": order['order_sn']})
+            
+        except frappe.DoesNotExistError:
+            frappe.set_user("Administrator")  
+            #sl_inv = frappe.get_doc("Sales Invoice", {"marketplace_order_number": order['order_sn']})
+            self.create_purchase_invoice(ordersn,order)   
+
+            return
+            frappe.flags.mute_messages = True
+            customer_key =  self.inser_customer(order,order['buyer_user_id'])
+            product = self.check_product_sku(order)
+
+
+            if product:
+                frappe.set_user("Administrator")  
+                sale_order = self.create_sales_order(ordersn,order,customer_key)
+
+                if status == 'READY_TO_SHIP':
+                    self.create_pack_list(sale_order)
+                elif  status == 'PROCESSED':
+                    self.create_pack_list(sale_order)
+                    self.create_delivery_note(sale_order,ordersn)
+                    self.create_sales_invoice(sale_order)   
+                elif  status == 'COMPLETED':
+                    self.create_pack_list(sale_order)
+                    self.create_delivery_note(sale_order,ordersn)
+                    self.create_sales_invoice(sale_order)   
+                    self.create_payment_entry(ordersn)
+                    self.create_purchase_invoice(ordersn,order)   
+                elif  status == 'TO_CONFIRM_RECEIVE':
+                    self.create_pack_list(sale_order)
+                    self.create_delivery_note(sale_order,ordersn)
+                    self.create_sales_invoice(sale_order)   
+                    self.create_payment_entry(ordersn)
+                    self.create_purchase_invoice(ordersn,order)   
+                elif  status == 'SHIPPED':
+                    self.create_pack_list(sale_order)
+                    self.create_delivery_note(sale_order,ordersn)
+                    self.create_sales_invoice(sale_order)   
+                    self.create_payment_entry(ordersn)
+                    self.create_purchase_invoice(ordersn,order)   
+            else:
+                self.create_order_issue(order,customer_key)
+
+
+        return
+        
+
+
+        
+
+                    
+
+
+    def handle_shopee_status(self,ordersn,shop_id,status,log_name):
+
+        frappe.flags.mute_exceptions = True
         order = self.shopee_order_details(ordersn)
-
         customer_key = self.inser_customer(order,order['buyer_user_id'])
+        if customer_key:
+            frappe.db.set_value('Marketplace Logs', log_name, 'custom_customer', customer_key)
         product = self.check_product_sku(order)
-
+        
         if product:
             frappe.set_user("Administrator")  
-            sale_order = self.create_sales_order(ordersn,order,customer_key)
-            if sale_order:
+            if status == 'UNPAID':
+                sale_order = self.create_sales_order(ordersn,order,customer_key)
                 frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order)
-                
-            if status == 'READY_TO_SHIP':
-                self.create_pack_list(sale_order)
-            elif  status == 'PROCESSED':
-                self.create_delivery_note(sale_order,ordersn)
-                self.create_sales_invoice(sale_order)   
-            elif  status == 'COMPLETED':
-                self.create_payment_entry(ordersn)
-                self.create_purchase_invoice(ordersn,order)   
-            elif  status == 'devtest':
-                return self.create_purchase_invoice(ordersn,order)
+            else:
+                if frappe.db.exists("Sales Order", {"marketplace_order_number": ordersn}):
+                    sale_order = frappe.get_doc("Sales Order", {"marketplace_order_number": ordersn})
+                    frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order.name)
+                    sale_order_status = frappe.db.get_value("Sales Order", sale_order.name , ["status"])    
+                    if status == 'READY_TO_SHIP':
+                        self.create_contact_for_customer(customer_key, order)
+                        self.create_pack_list(sale_order.name)
+                    elif  status == 'PROCESSED':
+                        self.create_delivery_note(sale_order.name,ordersn)
+                        self.create_sales_invoice(sale_order.name)   
+                    elif  status == 'COMPLETED':
+                        if sale_order_status == "Completed":  
+                            time.sleep(30)
+                            expenss = self.get_payment_details(ordersn)
+                            escrow = expenss.get('escrow_amount', None)
+                            if escrow is not None and escrow >= 0:
+                                self.create_payment_entry(ordersn)
+                                self.create_purchase_invoice(ordersn,order)   
+
         else:
             order_issue = self.create_order_issue(order,customer_key)
             frappe.db.set_value('Marketplace Logs', log_name, 'custom_sale_order_issue', order_issue)
-
 
 
     def get_payment_details(self, ordersn):
@@ -345,6 +669,7 @@ class ShopeeMarketplaceClient:
         buyer_paid_shipping_fee = expenss["buyer_paid_shipping_fee"]
         actual_shipping_fee = expenss["actual_shipping_fee"]
         shopee_shipping_rebate = expenss["shopee_shipping_rebate"]
+        original_shopee_discount = expenss["original_shopee_discount"]
         
         ordershipping = abs(actual_shipping_fee)-abs(shopee_shipping_rebate)-abs(buyer_paid_shipping_fee)
         
@@ -355,10 +680,17 @@ class ShopeeMarketplaceClient:
         f_total = grand_total+(ordershipping)-(service_charges)
         service_fee = first - ordershipping
         service_fee = first + ordershipping - f_total
+
+        service_charges = service_charges - original_shopee_discount
+        service_charges = service_charges+expenss.get('order_ams_commission_fee', 0)
         
+
         
         
         shopping_f = expenss["shopee_shipping_rebate"] +  expenss["buyer_paid_shipping_fee"] - expenss["actual_shipping_fee"]
+
+    
+
         if shopping_f > 0:
             shopping_f = -shopping_f  # Convert positive to negative
         elif shopping_f < 0:
@@ -387,10 +719,10 @@ class ShopeeMarketplaceClient:
                     "qty": 1
                 })
             
-
-            new_invoice.save()
-
+            
             if shopping_f >= 0:
+                new_invoice.disable_rounded_total = 1
+                new_invoice.save()
                 new_invoice.submit()
                 doc = get_payment_entry("Purchase Invoice", new_invoice.name)
                 olddate = datetime.now()
@@ -406,23 +738,28 @@ class ShopeeMarketplaceClient:
     def create_payment_entry(self, ordersn):
         try:
             sales_invoice = frappe.get_doc("Sales Invoice", {"marketplace_order_number": ordersn})
-            doc = get_payment_entry("Sales Invoice", sales_invoice.name)
-            olddate = datetime.now()
-            olddate_str = olddate.strftime("%Y-%m-%d")
-            doc.reference_no = ordersn
-            doc.reference_date = olddate_str
-            doc.mode_of_payment = "Shopee Fee"
-            doc.save(ignore_permissions=True)
-            #doc.submit()
-            frappe.db.commit()
-            return doc
+            if sales_invoice:
+                doc = get_payment_entry("Sales Invoice", sales_invoice.name)
+                olddate = datetime.now()
+                olddate_str = olddate.strftime("%Y-%m-%d")
+                doc.reference_no = ordersn
+                doc.reference_date = olddate_str
+                doc.mode_of_payment = "Shopee Fee"
+                doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                #doc.submit()
+                return doc
         except frappe.DoesNotExistError:
             pass
+        except frappe.DuplicateEntryError:
+            return sales_invoice
+        
 
 
     def create_sales_invoice(self, sale_order):
         doc = make_sales_invoice(sale_order,ignore_permissions=True)
         doc.custom_channel = "Shopee"
+        doc.additional_discount_account = "4170-00 SALES DISCOUNT"
         doc.insert(ignore_permissions=True)
         doc.submit()
         frappe.db.commit()
@@ -445,19 +782,52 @@ class ShopeeMarketplaceClient:
         doc.submit()
         frappe.db.commit()
         return doc
-
-    def create_sales_order(self, ordersn,order, customer_key):
     
-        try:
-            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
+    
+    
+    def get_bundle_deal_info(self,item):
+         
+        return item
+        
+        partner_id = int(2004610)
+        partner_key = "da22ac428afd591add1e4a988eaff7b7981d66980b19323d7d5a5c19116e575a"
+        shop_id = int(213497319)
+
+        docSettings = frappe.get_single("Marketplace integration")
+        accesstoken = docSettings.get_value('access_token')
+        kwargs = {
+            'item_id_list': item["item_id"]
+        }
+        shopee  = Client(shop_id, partner_id, partner_key, accesstoken)
+        shopee.set_access_token(accesstoken)
+        shopee  = shopee.execute('product/get_item_promotion', "GET", kwargs)
+        pormotionid = shopee["response"]["success_list"][0]["promotion"]
+        return pormotionid
+        
+        return item
+    
+    
+    def create_sales_order(self, ordersn,order, customer_key):
+        
+        if frappe.db.exists("Sales Order", {"marketplace_order_number": order['order_sn']}):
+            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": ordersn})
             return existing_doc.name
-        except frappe.DoesNotExistError:
-            
+        else:
             expenss = self.get_payment_details(ordersn)
             new_order = frappe.new_doc('Sales Order')
             new_order.customer = customer_key
-            new_order.delivery_date = datetime.now().date()
+
+           
+           
+         
+            current_date = datetime.now().date()
+            delivery_date = current_date + timedelta(days=2)
+            new_order.delivery_date = delivery_date
+
+
             new_order.marketplace_order_number = order.get('order_sn', '')
+
+            coin = expenss.get('coins', 0)
 
             platform_voucher = 0
             seller_voucher = 0
@@ -466,8 +836,9 @@ class ShopeeMarketplaceClient:
             #$totalz = $order["price"]+$shipping_price;
             
             taxs = self.get_listof_taxs()
-
-            for item in order['item_list']:
+        
+        
+            for item in expenss['items']:
                 pprice = item.get("model_discounted_price")
                 if not pprice:
                     pprice = item.get("model_original_price")
@@ -477,29 +848,37 @@ class ShopeeMarketplaceClient:
                 if not sku:
                     sku = item.get("model_sku")
                     
+                
+                if item.get("discounted_price"):
+                    pprice = item.get("discounted_price") / item.get("quantity_purchased",1)  
+                   
+                pprice = round(pprice,2)
+                
+                if item.get("promotion_type"):
+                    promotion_type = item.get("promotion_type") 
+                
+                
                 new_order.append("items", {
                     "item_code": sku,
-                    "rate" : pprice,
-                    "price": pprice,
-                    "amount": pprice,
-                    "base_rate": pprice,
-                    "base_amount": pprice,
-                    "stock_uom_rate": pprice,
-                    "net_rate": pprice,
-                    "net_amount": pprice,
-                    "base_net_rate": pprice,
-                    "base_net_amount": pprice,
-                    "qty": 1
+                    "rate": pprice,
+                    "price_list_rate": pprice,
+                    "base_price_list_rate": pprice,
+                    "qty": item.get("quantity_purchased", 1),
+                    "custom_ifbundledeal": 1 if item.get("promotion_type") == "bundle_deal" else 0,
                 })
-                
-                
+
+            
             if expenss.get('voucher_from_seller', 0):
-                new_order.append("custom_seller_voucher",{
-                    "doctype": 'Seller Voucher List',
-                    "voucher_name": 'Seller Discount',
-                    "voucher_amount": expenss.get('voucher_from_seller', 0)
-                })
+                # new_order.append("custom_seller_voucher",{
+                #     "doctype": 'Seller Voucher List',
+                #     "voucher_name": 'Seller Discount',
+                #     "voucher_amount": expenss.get('voucher_from_seller', 0)
+                # })
                 new_order.discount_amount = expenss.get('voucher_from_seller', 0)
+
+        
+            if coin:
+                new_order.custom_shopee_coin = coin
                 
             if expenss.get('voucher_from_shopee', 0):
                 new_order.custom_marketplace_discount = expenss.get('voucher_from_shopee', 0)
@@ -514,18 +893,17 @@ class ShopeeMarketplaceClient:
 
             new_order.disable_rounded_total = 1
             new_order.taxes_and_charges = 'Thailand Tax - Clinton'
-
-
-
             new_order.owner_department = "All Departments"
             new_order.sales_name = "Sales Team"
             new_order.marketplace_platform = "Shopee"
-
-            new_order.insert(ignore_permissions=True)
-            new_order.submit()
-            frappe.db.commit()
-            return new_order.name
-
+            new_order.selling_price_list = "Shopee"
+            try:
+                new_order.insert(ignore_permissions=True)
+                new_order.submit()
+                frappe.db.commit()
+                return new_order.name
+            except frappe.DuplicateEntryError:
+                return None
 
 
     def get_listof_taxs(self):
@@ -571,39 +949,43 @@ class ShopeeMarketplaceClient:
             if not exists:
                 return 0
             else:
-                bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
-                if bins:
-                    return 1
-                else:
-                    return 0
+                # bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
+                # if bins:
+                return 1
+                # else:
+                #     return 0
     
 
     def inser_customer(self, order, buyer_id):
+        
+        address_data = order["recipient_address"]
+        name = address_data['name']
+        if name == "****":
+            name = order["buyer_username"]
+
+
         try:
-            existing_customer = frappe.get_doc("Customer", {"marketplace_buyer_id": buyer_id})
+            existing_customer = frappe.get_doc("Customer", {"customer_name": "SH-"+str(buyer_id)})
             return existing_customer.name
         except frappe.DoesNotExistError:
-            address_data = order["recipient_address"]
-            name = address_data['name']
-            if name == "****":
-                name = order["buyer_username"]
-
             customer = frappe.get_doc({
                 "doctype": "Customer",
-                "full_name": name,
-                "customer_name": name,
-                "customer_group": "All Customer Groups",
+                "name": "SH-"+str(buyer_id),
+                "customer_name": "SH-"+str(buyer_id),
+                "full_name": str(name),
+                "customer_group": "Shopee",
                 "territory": "Thailand",
                 "marketplace_buyer_id": buyer_id
             })
-            customer.insert(
-                ignore_permissions=True
-            )
+            customer.insert(ignore_permissions=True)
             frappe.db.commit()
-            self.create_contact_for_customer(customer.name, name)
             return customer.name
 
-    def create_contact_for_customer(self,customer, name):
+    def create_contact_for_customer(self,customer, order):
+        address_data = order["recipient_address"]
+        name = address_data['name']
+
+
         contact = frappe.get_doc({
             "doctype": "Contact",
             "first_name": name,
@@ -636,10 +1018,6 @@ class ShopeeMarketplaceClient:
 
 
 
-    
-
-
-
 
 
     
@@ -662,22 +1040,293 @@ class ShopeeMarketplaceClient:
 
 
 
+
+
+
+@frappe.whitelist(allow_guest=True)
+def handle_delay_event_lazada(ordersn,shop_id,status,buyer_id,log_name):
+    frappe.logger().info(f"Handling completed order: {ordersn}")
+    connect = LazadaMarketplaceClient()	
+    return connect.handle_lazada_order_status ( ordersn,shop_id,status,buyer_id,log_name)
+
 @frappe.whitelist(allow_guest=True)
 def push_shopee_lazada(ordersn,shop_id,status,buyer_id):
-    try:
+    if status.lower() != 'delivered':
+        try:
+            contact = frappe.new_doc("Marketplace Logs")
+            contact.order_id = ordersn
+            contact.status = status
+            contact.shope_id = shop_id
+            contact.buyer_id = buyer_id
+            contact.marketplace = "Lazada"
+            contact.custom_job_completed = 1
+            contact.insert(ignore_permissions=True)
+            connect = LazadaMarketplaceClient()	
+            return connect.handle_lazada_order_status ( ordersn,shop_id,status,buyer_id,contact.name)
+        except Exception:
+            pass
+    else:
         contact = frappe.new_doc("Marketplace Logs")
         contact.order_id = ordersn
         contact.status = status
         contact.shope_id = shop_id
         contact.buyer_id = buyer_id
         contact.marketplace = "Lazada"
+        contact.custom_job_completed = 0
         contact.insert(ignore_permissions=True)
-        connect = LazadaMarketplaceClient()	
-        return connect.handle_lazada_order_status ( ordersn,shop_id,status,buyer_id,contact.name)
-    except Exception:
-        pass
-      
+
+@frappe.whitelist(allow_guest=True)
+def feach_lazada_orders(pageno):
+    frappe.set_user("Administrator")  
+    time_from = datetime(2024, 4, 1).timestamp()
+    time_to = datetime(2024, 4, 15).timestamp()
+
+    from_datetime = datetime.fromtimestamp(time_from)
+    to_datetime = datetime.fromtimestamp(time_to)
+
+    # Convert datetime objects to ISO 8601 format
+    iso_from = from_datetime.isoformat()
+    iso_to = to_datetime.isoformat()
+     
+    docSettings = frappe.get_single("Marketplace integration")
+    accesstoken = docSettings.get_password('lazada_access_token')
+    client = LazopClient('https://api.lazada.co.th/rest','112284','eRIs543RcqFoE9GXHA1BLEzOYUHDZJy0')
+    request = LazopRequest('/orders/get','GET')
+    request.add_api_param('created_after', iso_from)
+    request.add_api_param('limit', 100)
+    request.add_api_param('offset', pageno)
+    order_details = client.execute(request, accesstoken).body
+
+
+    order_details = order_details['data']['orders']
+    results = []
+    if order_details:
+            for order in order_details:
+                ordersn = order["order_id"]
+                #doc_list = frappe.get_list('Payment Entry', {'reference_no': ordersn})
+                #for doc in doc_list:
+                #    frappe.db.delete('Payment Entry', doc["name"])
+                results.append(ordersn)
+
+    return results
+    #@connect = LazadaMarketplaceClient()	
+    #return connect.handle_orders_list ( order_details["data"]["orders"])
+
+
+
+@frappe.whitelist(allow_guest=True)
+def feach_lazada_order(**kwargs):
+    connect = LazadaMarketplaceClient()
+    orderno = kwargs["order"]
+    if ',' in kwargs["order"]:
+        order_numbers = orderno.split(',') 
+        results = []
+        for order_number in order_numbers:
+            result = connect.handle_orders_s(order_number.strip()) 
+            results.append(result)
+
+        return results
+    else:
+        return connect.handle_orders_s(orderno.strip())
+
 class LazadaMarketplaceClient:
+    def handle_orders_s(self,orderno):
+        frappe.set_user("Administrator")  
+        frappe.flags.mute_messages = True
+
+        # order_info = self.get_order_info(orderno)
+        # order_items = json.loads(order_info.get('order_items', '[]'))
+        # order_items = order_items.get('data', '[]')
+
+        # buyer_id = order_items[0].get('buyer_id', '')
+        # status = order_items[0].get('status', '')
+
+        # if status == "canceled":
+        doc_list = frappe.get_list('Sales Order', {'marketplace_order_number': orderno})
+        for doc in doc_list:
+            frappe.db.delete('Sales Order', doc["name"])
+            #frappe.delete_doc('Sales Order', doc["name"])
+
+
+        return
+        
+
+
+        
+
+        return
+
+        self.create_payment_entry(orderno)
+        self.create_purchase_invoice_lazada(orderno)
+        return
+        #$self.create_payment_entry(orderno)
+        #order_info = self.get_order_info(orderno)
+        #order_details_json = json.loads(order_info.get('order_details', '[]'))
+        #order_items = json.loads(order_info.get('order_items', '[]'))
+        #order_details = order_details_json.get('data', '[]')
+        #order_items = order_items.get('data', '[]')
+
+        #product = self.check_product_sku(order_items)
+        
+        return self.create_purchase_invoice_lazada(orderno)
+
+
+        #
+        return
+        try:
+            frappe.flags.mute_messages = True
+            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": orderno})
+            return existing_doc.name
+        except frappe.DoesNotExistError:
+            frappe.flags.mute_messages = True
+            ordersn = orderno
+
+            order_info = self.get_order_info(ordersn)
+            order_details_json = json.loads(order_info.get('order_details', '[]'))
+            order_items = json.loads(order_info.get('order_items', '[]'))
+            order_details = order_details_json.get('data', '[]')
+            order_items = order_items.get('data', '[]')
+            
+
+
+            buyer_id = order_items[0].get('buyer_id', '')
+            status = order_items[0].get('status', '')
+            customer_key = self.inser_customer(order_details,buyer_id)
+            frappe.set_user("Administrator")  
+            sale_order = self.create_sales_order(order_details,order_items,customer_key)
+            return sale_order
+
+
+            if not frappe.db.exists("Marketplace Logs", {"order_id": ordersn}):
+                order_info = self.get_order_info(ordersn)
+                order_details_json = json.loads(order_info.get('order_details', '[]'))
+                order_items = json.loads(order_info.get('order_items', '[]'))
+                order_details = order_details_json.get('data', '[]')
+                order_items = order_items.get('data', '[]')
+
+
+                buyer_id = order_items[0].get('buyer_id', '')
+                status = order_items[0].get('status', '')
+
+
+                customer_key = self.inser_customer(order_details,buyer_id)
+                product = self.check_product_sku(order_items)
+
+                contact = frappe.new_doc("Marketplace Logs")
+                contact.order_id = ordersn
+                contact.status = status
+                contact.buyer_id = buyer_id
+                contact.marketplace = "Lazada"
+                contact.insert(ignore_permissions=True)
+                log_name = contact.name
+
+
+                if product:
+                    # Create a new document only if it doesn't already exist
+                    frappe.set_user("Administrator")  
+                    sale_order = self.create_sales_order(order_details,order_items,customer_key)
+                    if sale_order:
+                        frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order)
+                    if status.lower() == 'pending':
+                        self.create_pack_list(sale_order)
+                    elif  status.lower() == 'ready_to_ship':
+                        self.create_pack_list(sale_order)
+                        self.create_delivery_note(sale_order,ordersn)
+                        self.create_sales_invoice(sale_order)   
+                    elif  status.lower() == 'delivered':
+                        self.create_pack_list(sale_order)
+                        self.create_delivery_note(sale_order,ordersn)
+                        self.create_sales_invoice(sale_order)   
+                        self.create_payment_entry(ordersn)
+                        self.create_purchase_invoice_lazada(ordersn,order_details,order_items)
+                    elif  status.lower() == 'confirmed':
+                        self.create_pack_list(sale_order)
+                        self.create_delivery_note(sale_order,ordersn)
+                        self.create_sales_invoice(sale_order)   
+                        self.create_payment_entry(ordersn)
+                        self.create_purchase_invoice_lazada(ordersn,order_details,order_items)
+                    elif  status.lower() == 'shipped':
+                        self.create_pack_list(sale_order)
+                        self.create_delivery_note(sale_order,ordersn)
+                        self.create_sales_invoice(sale_order)   
+                        self.create_payment_entry(ordersn)
+                        self.create_purchase_invoice_lazada(ordersn,order_details,order_items)
+                else:
+                    order_issue = self.create_order_issue(order_details,order_items,customer_key)
+                    if order_issue:
+                        frappe.db.set_value('Marketplace Logs', log_name, 'custom_sale_order_issue', order_issue)
+
+    def handle_orders_list(self,orders):
+        if orders:
+            for order in orders:
+                ordersn = order["order_id"]
+                order_info = self.get_order_info(ordersn)
+
+                if order_info:
+                    order_details_json = json.loads(order_info.get('order_details', '[]'))
+                    order_items = json.loads(order_info.get('order_items', '[]'))
+                    order_details = order_details_json.get('data', '[]')
+                    order_items = order_items.get('data', '[]')
+
+
+                    buyer_id = order_items[0].get('buyer_id', '')
+                    status = order_items[0].get('status', '')
+
+
+                    product = self.check_product_sku(order_items)
+                    
+
+                    if not frappe.db.exists("Marketplace Logs", {"order_id": ordersn}):
+                        contact = frappe.new_doc("Marketplace Logs")
+                        contact.order_id = ordersn
+                        contact.status = status
+                        contact.buyer_id = buyer_id
+                        contact.marketplace = "Lazada"
+                        contact.insert(ignore_permissions=True)
+                        log_name = contact.name
+
+                        customer_key = self.inser_customer(order_details,buyer_id)
+                    
+                        if customer_key:
+                            frappe.db.set_value('Marketplace Logs', log_name, 'custom_customer', customer_key)
+
+                        if product:
+                            # Create a new document only if it doesn't already exist
+                            frappe.set_user("Administrator")  
+                            sale_order = self.create_sales_order(order_details,order_items,customer_key)
+                            sale_order_status = frappe.db.get_value("Sales Order", sale_order , ["status"])
+                            
+                            if sale_order:
+                                frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order)
+
+                                if status.lower() == 'pending':
+                                    self.create_pack_list(sale_order)
+                                elif  status.lower() == 'ready_to_ship':
+                                    self.create_pack_list(sale_order)
+                                    self.create_delivery_note(sale_order,ordersn)
+                                    self.create_sales_invoice(sale_order)   
+                                elif  status.lower() == 'delivered':
+                                    if sale_order_status == "Completed": 
+                                        self.create_pack_list(sale_order)
+                                        self.create_delivery_note(sale_order,ordersn)
+                                        self.create_sales_invoice(sale_order)   
+                                        self.create_payment_entry(ordersn)
+                                        self.create_purchase_invoice_lazada(ordersn)
+                                elif  status.lower() == 'confirmed':
+                                    if sale_order_status == "Completed": 
+                                        self.create_pack_list(sale_order)
+                                        self.create_delivery_note(sale_order,ordersn)
+                                        self.create_sales_invoice(sale_order)   
+                                        self.create_payment_entry(ordersn)
+                                        self.create_purchase_invoice_lazada(ordersn)
+                        else:
+                            order_issue = self.create_order_issue(order_details,order_items,customer_key)
+                            if order_issue:
+                                frappe.db.set_value('Marketplace Logs', log_name, 'custom_sale_order_issue', order_issue)
+
+
+
+
     def handle_lazada_order_status( self, ordersn,shop_id,status,buyer_id,log_name):
         order_info =  self.get_order_info(ordersn)
         if order_info:
@@ -688,24 +1337,32 @@ class LazadaMarketplaceClient:
             order_items = order_items.get('data', '[]')
 
             customer_key = self.inser_customer(order_details,buyer_id)
+            if customer_key:
+                frappe.db.set_value('Marketplace Logs', log_name, 'custom_customer', customer_key)
+
+
             product = self.check_product_sku(order_items)
-            
             if product:
                 frappe.set_user("Administrator")  
                 
                 sale_order = self.create_sales_order(order_details,order_items,customer_key)
-                if sale_order:
+                if status.lower() == 'unpaid':
                     frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order)
-                if status.lower() == 'pending':
-                    self.create_pack_list(sale_order)
-                elif  status.lower() == 'ready_to_ship':
-                    self.create_delivery_note(sale_order,ordersn)
-                    self.create_sales_invoice(sale_order)   
-                elif  status.lower() == 'delivered':
-                    self.create_payment_entry(ordersn)
-                    self.create_purchase_invoice_lazada(ordersn)
-                elif  status.lower() == 'devtest':
-                    return self.create_purchase_invoice_lazada(ordersn,order_details,order_items)
+                else:
+                    if frappe.db.exists("Sales Order", {"marketplace_order_number": ordersn}):
+                        sale_order = frappe.get_doc("Sales Order", {"marketplace_order_number": ordersn})
+                        frappe.db.set_value('Marketplace Logs', log_name, 'sale_order', sale_order.name)
+                        sale_order_status = frappe.db.get_value("Sales Order", sale_order.name , ["status"])
+                        if status.lower() == 'pending':
+                            self.create_pack_list(sale_order.name)
+                        elif  status.lower() == 'ready_to_ship':
+                            self.create_delivery_note(sale_order.name,ordersn)
+                            self.create_sales_invoice(sale_order.name)   
+                        elif  status.lower() == 'delivered':
+                            if sale_order_status == "Completed":    
+                                self.create_payment_entry(ordersn)
+                                #self.create_purchase_invoice_lazada(ordersn)
+
 
             else:
                 order_issue = self.create_order_issue(order_details,order_items,customer_key)
@@ -713,28 +1370,57 @@ class LazadaMarketplaceClient:
                     frappe.db.set_value('Marketplace Logs', log_name, 'custom_sale_order_issue', order_issue)
  
 
-    def create_purchase_invoice_lazada(self, ordersn,order_details,order_items):
-        expenss = self.getorderdetails_addional_expenss(ordersn)
-
-        grand_total = 0
-        subside = 0
-        for item in expenss:
-            grand_total += float(item.get('amount', 0))
-            if item.get('fee_type', 0) == "1028":
-                subside += float(item.get('amount', 0))
-        grand_total = round(grand_total)
-        subside = abs(subside)
-        subtotal = float(order_details['price']) - order_details['voucher']
-        total = abs(subtotal) - abs(grand_total)
-        after_subside = total - subside
-        total_fee = round(after_subside, 2)
-
+    def create_purchase_invoice_lazada(self, ordersn):
+        
         try:
              existing_doc = frappe.get_doc("Purchase Invoice", {"marketplace_order_number": ordersn})
              return existing_doc.name
         except frappe.DoesNotExistError:
+
+            expenss = self.getorderdetails_addional_expenss(ordersn)
+            order_info = self.get_order_info(ordersn)
+            order_details_json = json.loads(order_info.get('order_details', '[]'))
+            order_items = json.loads(order_info.get('order_items', '[]'))
+            order_details = order_details_json.get('data', '[]')
+            order_items = order_items.get('data', '[]')
+            grand_total = 0
+            subside = 0
+
+
+            seller_voucher_total = 0
+            item_price_total = 0
+            for item in order_items:
+                amount_str = item.get('item_price', '0')
+                item_price_total += float(amount_str)
+
+                if item.get('voucher_seller', '0'):
+                    amount_str = item.get('voucher_seller', '0')
+                    seller_voucher_total += float(amount_str)
+
+            sakes_order_grand_total = round(item_price_total - seller_voucher_total, 2)
+                
+
+            for item in expenss:
+                amount_str = item.get('amount', '0').replace(',', '')
+                grand_total += float(amount_str)
+                if item.get('fee_type', 0) == "1028":
+                    subside += float(item.get('amount', 0))
+            grand_total = round(grand_total,2)
+
+            services_fee =  abs(grand_total) - abs(sakes_order_grand_total)
+            after_subside = services_fee - subside
+
+            subside = abs(subside)
+            subtotal = float(order_details['price']) - order_details['voucher']
+            total = abs(subtotal) - abs(grand_total)
+
+            
+
+            total_fee = abs(round(after_subside, 2))
+
             new_invoice = frappe.new_doc('Purchase Invoice')
             new_invoice.supplier = "Lazada Co., Ltd",
+            
             new_invoice.owner_department = "API Admin - Clinton"
             new_invoice.marketplace_order_number = ordersn
             new_invoice.append("items", {
@@ -751,6 +1437,7 @@ class LazadaMarketplaceClient:
                     "rate" : subside,
                     "qty": 1
                 })
+            new_invoice.disable_rounded_total = 1
             new_invoice.save()
             new_invoice.submit()
             
@@ -763,6 +1450,9 @@ class LazadaMarketplaceClient:
             doc.save(ignore_permissions=True)
             doc.submit()
             frappe.db.commit()
+
+
+
 
     def get_amount_by_fee_type(self, data, fee_type):
         amounts = [entry['amount'] for entry in data if entry.get('fee_type') == fee_type]
@@ -778,6 +1468,10 @@ class LazadaMarketplaceClient:
     def create_payment_entry(self, ordersn):
         try:
             sales_invoice = frappe.get_doc("Sales Invoice", {"marketplace_order_number": ordersn})
+            existing_entries =frappe.get_list("Payment Entry", filters={"reference_doctype": "Sales Invoice", "reference_name": sales_invoice.name})
+            if existing_entries:
+                # If payment entry exists, return None or any appropriate value
+                return None
             doc = get_payment_entry("Sales Invoice", sales_invoice.name)
             olddate = datetime.now()
             olddate_str = olddate.strftime("%Y-%m-%d")
@@ -794,6 +1488,7 @@ class LazadaMarketplaceClient:
     def create_sales_invoice(self, sale_order):
         doc = make_sales_invoice(sale_order,ignore_permissions=True)
         doc.custom_channel = "Lazada"
+        doc.additional_discount_account = "4170-00 SALES DISCOUNT"
         doc.insert(ignore_permissions=True)
         doc.submit()
         frappe.db.commit()
@@ -814,85 +1509,65 @@ class LazadaMarketplaceClient:
         
     def create_pack_list(self,sale_order):
         doc = create_pick_list(sale_order)
+
+        # picllist_qty = len(doc.locations)
+        # sales_order_items = frappe.get_doc("Sales Order", sale_order)
+        # sales_order_items = len(sales_order_items.items)
+
+        # if sales_order_items == picllist_qty:
         doc.save(ignore_permissions=True)
         doc.submit()
         frappe.db.commit()
-        return doc
+        #     return doc
     
     
     def create_sales_order(self, order_details, order_items, customkey):
-        try:
+
+        
+        if frappe.db.exists("Sales Order", {"marketplace_order_number": order_details['order_number']}):
             existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order_details['order_number']})
             return existing_doc.name
-        except frappe.DoesNotExistError:
+        else:
             new_order = frappe.new_doc('Sales Order')
             new_order.customer = customkey
-            new_order.delivery_date = datetime.now().date()
+            current_date = datetime.now().date()
+            delivery_date = current_date + timedelta(days=2)
+            new_order.delivery_date = delivery_date
             new_order.marketplace_order_number = order_details.get('order_number', '')
-
             platform_voucher = 0
             seller_voucher = 0
             discounttotal = 0
-
             #$totalz = $order["price"]+$shipping_price;
-            
-
-            
             taxs = self.get_listof_taxs()
 
             for item in order_items:
                 new_order.append("items", {
                     "item_code": item['sku'],
                     "rate" : item['item_price'],
-                    "price": item['item_price'],
-                    "amount": item['item_price'],
-                    "base_rate": item['item_price'],
-                    "base_amount": item['item_price'],
-                    "stock_uom_rate": item['item_price'],
-                    "net_rate": item['item_price'],
-                    "net_amount": item['item_price'],
-                    "base_net_rate": item['item_price'],
-                    "base_net_amount": item['item_price'],
+                    "price_list_rate" : item['item_price'],
+                    "base_price_list_rate" : item['item_price'],
                     "qty": 1
                 })
                 platform_voucher += item.get('voucher_platform', 0)
                 seller_voucher += item.get('voucher_seller', 0)
                 discounttotal += item.get('voucher_amount', 0)
                 
-
             ordertotal = float(order_details["price"]) + float(order_details["shipping_fee"])
             grand_total_marketplace = ordertotal-discounttotal
-
-        
-
-
             if seller_voucher:
-                new_order.append("custom_seller_voucher",{
-                    "doctype": 'Seller Voucher List',
-                    "voucher_name": 'Seller Discount',
-                    "voucher_amount": seller_voucher
-                })
-
-
+                new_order.discount_amount = seller_voucher
             for item in taxs:
                 new_order.append("taxes",item)
-
             new_order.disable_rounded_total = 1
             if platform_voucher:
                 new_order.custom_marketplace_discount = platform_voucher
-
-
             new_order.custom_grand_total_marketplace = grand_total_marketplace
-            new_order.discount_amount = seller_voucher
             new_order.custom_marketplace_taxes_and_charges = float(order_details["shipping_fee"])
             new_order.taxes_and_charges = 'Thailand Tax - Clinton'
-
-
-
             new_order.owner_department = "All Departments"
             new_order.sales_name = "Sales Team"
             new_order.marketplace_platform = "Lazada"
-
+            new_order.selling_price_list = "Lazada"
             new_order.insert(ignore_permissions=True)
             new_order.submit()
             frappe.db.commit()
@@ -925,7 +1600,7 @@ class LazadaMarketplaceClient:
             new_order.marketplace_order_number = order_details.get('order_number', '')
             for item in order_items:
                 new_order.append("items",{
-                    "item": item['name'],
+                    "item":  self.truncate_string(item['name'], 20),
                     "quantity": 1,
                     "price": item['paid_price'],
                     "amount": item['paid_price']
@@ -937,6 +1612,12 @@ class LazadaMarketplaceClient:
             frappe.db.commit()
             return new_order.name
         
+    def truncate_string(self,text, max_length):
+        if len(text) <= max_length:
+            return text
+        else:
+            return text[:max_length]
+    
 
     def check_product_sku(self, order_info):
         for item in order_info:
@@ -945,24 +1626,26 @@ class LazadaMarketplaceClient:
             if not exists:
                 return 0
             else:
-                bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
-                if bins:
-                    return 1
-                else:
-                    return 0
+                # bins = frappe.get_all('Bin', filters={'item_code': sku}, fields=['actual_qty'])
+                # if bins:
+                return 1
+                # else:
+                #     return 0
 
     def inser_customer(self, order_details, buyer_id):
         customer_info = order_details['address_shipping'] 
         name = customer_info["first_name"] + customer_info["last_name"]
+
+
         try:
             existing_customer = frappe.get_doc("Customer", {"marketplace_buyer_id": buyer_id})
             return existing_customer.name
         except frappe.DoesNotExistError:
             customer = frappe.get_doc({
                 "doctype": "Customer",
-                "full_name": name,
-                "customer_name": name,
-                "customer_group": "All Customer Groups",
+                "full_name": str(name),
+                "customer_name": "LAZ-"+str(buyer_id),
+                "customer_group": "Lazada",
                 "territory": "Thailand",
                 "marketplace_buyer_id": buyer_id
             })
@@ -970,7 +1653,7 @@ class LazadaMarketplaceClient:
                 ignore_permissions=True
             )
             frappe.db.commit()
-            self.create_contact_for_customer(customer.name, customer_info)
+            #self.create_contact_for_customer(customer.name, customer_info)
             return customer.name
 
             
@@ -992,9 +1675,21 @@ class LazadaMarketplaceClient:
                 'phone':  customer_info["phone"],
         })
         contact.insert(ignore_permissions=True)
-        frappe.db.commit()
-        return contact
 
+
+        address = frappe.get_doc({
+            "doctype": "Address",
+            "address_line1": customer_info["address1"] +" "+customer_info["address2"]+" "+customer_info["address3"]+" "+customer_info["address4"]+" "+customer_info["address5"],
+            "phone": customer_info["phone"],
+            "address_type": "Shipping",
+            "city": "-",
+        })
+        address.append('links', {
+                'link_doctype': 'Customer',
+                'link_name': customer
+        })
+        address.insert(ignore_permissions=True)
+        frappe.db.commit()
     
     def getorderdetails_addional_expenss( self, ordersn):
         docSettings = frappe.get_single("Marketplace integration")
@@ -1010,8 +1705,7 @@ class LazadaMarketplaceClient:
             order_details = client.execute(request, accesstoken).body
             return order_details["data"]
         
-        
-        
+
     def get_order_info( self, ordersn):
         docSettings = frappe.get_single("Marketplace integration")
         accesstoken = docSettings.get_password('lazada_access_token')
@@ -1021,7 +1715,6 @@ class LazadaMarketplaceClient:
             request = LazopRequest('/order/get','GET')
             request.add_api_param('order_id', ordersn)
             order_details = client.execute(request, accesstoken).body
-
 
             if order_details:
                 order_details = json.dumps(order_details)
@@ -1034,12 +1727,3 @@ class LazadaMarketplaceClient:
                 order_data['order_items'] = response_items
 
             return order_data
-
-
-
-    
-
-
-
-    
-    
