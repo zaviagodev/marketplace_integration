@@ -73,14 +73,16 @@ class LazadaClient:
     def create_product(self, product_info):
         payload = {
             "Request": {
-                "Product": product_info.get("Product"),
-                "Attributes": product_info.get("Attributes"),
-                "Skus": {
-                    "Sku": product_info.get("Skus")
-                }
+                "Product": {
+                    **product_info.get("Product"),
+                    "Attributes": product_info.get("Attributes"),
+                    "Skus": {
+                        "Sku": product_info.get("Skus")
+                    }
+                },
             }
         }
-        
+
         request = LazopRequest("/product/create", "POST")
         request.add_api_param("payload", json.dumps(payload))
         
@@ -102,7 +104,7 @@ class LazadaClient:
                 }
             }
         }
-        
+
         multi_warehouse_info = []
         if warehouses_info:
             for name, value in warehouse.items():
@@ -112,15 +114,13 @@ class LazadaClient:
             request_payload["Request"]["Product"]["Skus"]["Sku"]["MultiWarehouseInventory"] = multi_warehouse_info
         else:
             request_payload["Request"]["Product"]["Skus"]["Sku"]["SellableQuantity"] = str(sellable_qty)
-        
-        
+
         request = LazopRequest("/product/stock/sellable/adjust", "POST")
         print(json.dumps(request_payload))
         request.add_api_param("payload", json.dumps(request_payload))
         
         response = self.execute(request)
-        print(response.type)
-        print(response.body)
+        return extract_response(response)
 
     def deactivate_product(self, item_id):
         request_payload = {
@@ -137,6 +137,35 @@ class LazadaClient:
         response = self.execute(request)
         return extract_response(response)
 
+    def get_category_tree(self):
+        request = LazopRequest("/category/tree/get", "GET")
+        request.add_api_param('language_code', 'en_US')
+        
+        response = self.execute(request)
+        return extract_response(response)
+
+    def get_category_attributes(self, category_id):
+        request = LazopRequest("/category/attributes/get", "GET")
+        request.add_api_param("primary_category_id", category_id)
+        request.add_api_param("language_code", "en_US")
+
+        response = self.execute(request)
+        return extract_response(response)
+
+    def get_category_suggestion(self, title):
+        request = LazopRequest("/product/category/suggestion/get", "GET")
+        request.add_api_param("product_name", title)
+        response = self.execute(request)
+
+        return extract_response(response)
+    
+    def get_brands(self, start_from = 0, page_size = 20):
+        request = LazopRequest("/category/brands/query", "GET")
+        request.add_api_param("startRow", start_from)
+        request.add_api_param("pageSize", page_size)
+        response = self.execute(request)
+        return extract_response(response)
+
     def upload_image(self, image_path):
         compressed_image = compress_image(image_path, 1)
         
@@ -145,7 +174,7 @@ class LazadaClient:
         response = self.execute(request)
 
         return extract_response(response)
-    
+
     # Get a list of Skus along with Images, Remember images should be uploaded to 
     # Example:
     # [{"sku_id": 1234, "images": ["url1", "url2"]}]
@@ -171,6 +200,6 @@ class LazadaClient:
             }
         request = LazopRequest("/images/set", "POST")
         request.set_api_param("payload", json.dumps(payload))
-        
+
         response = self.execute(request)
         return extract_response(response)
