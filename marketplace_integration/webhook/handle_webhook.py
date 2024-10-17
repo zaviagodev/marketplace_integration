@@ -700,8 +700,7 @@ class ShopeeMarketplaceClient:
 
     def create_sales_order(self, ordersn, order, customer_key, expense):
     
-        try:
-            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
+        if frappe.db.exists("Sales Order", {"marketplace_order_number": ordersn}):
             return existing_doc.name
         else:
             expense = self.get_payment_details(ordersn)
@@ -747,7 +746,7 @@ class ShopeeMarketplaceClient:
                     "net_amount": total_amount ,
                     "base_net_rate": discounted_price,
                     "base_net_amount": total_amount,
-                    "qty": quantity
+                    "qty": quantity,
                     "custom_ifbundledeal": 1 if item.get("promotion_type") == "bundle_deal" else 0
                 })
                 
@@ -1006,10 +1005,6 @@ def feach_lazada_order(**kwargs):
         return results
     else:
         return connect.handle_orders_s(orderno.strip())
-        connect = LazadaMarketplaceClient()	
-        return connect.handle_lazada_order_status ( ordersn,shop_id,status,buyer_id,contact.name)
-    except Exception:
-        pass
 
 class LazadaMarketplaceClient:
     def handle_orders_s(self,orderno):
