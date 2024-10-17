@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-10-16 16:48:28.194883",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "method",
+  "manual",
+  "connect",
+  "connect_lazada",
+  "info",
+  "seller_id",
+  "access_token",
+  "refresh_token",
+  "refresh_token_btn"
+ ],
+ "fields": [
+  {
+   "fieldname": "connect_lazada",
+   "fieldtype": "Button",
+   "label": "Connect"
+  },
+  {
+   "bold": 1,
+   "default": "0",
+   "fieldname": "manual",
+   "fieldtype": "Check",
+   "label": "Manual",
+   "print_hide": 1
+  },
+  {
+   "fieldname": "seller_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Seller ID",
+   "mandatory_depends_on": "evel:",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "access_token",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Access Token",
+   "reqd": 1
+  },
+  {
+   "fieldname": "refresh_token",
+   "fieldtype": "Data",
+   "label": "Refresh Token"
+  },
+  {
+   "fieldname": "refresh_token_btn",
+   "fieldtype": "Button",
+   "label": "Refresh Token"
+  },
+  {
+   "depends_on": "eval:doc.manual == 0;",
+   "fieldname": "connect",
+   "fieldtype": "Section Break",
+   "label": "Connect",
+   "mandatory_depends_on": "eval:doc.manual == 0;"
+  },
+  {
+   "depends_on": "eval:doc.manual == 1;",
+   "fieldname": "info",
+   "fieldtype": "Section Break",
+   "label": "Information"
+  },
+  {
+   "fieldname": "method",
+   "fieldtype": "Section Break",
+   "label": "Method"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-10-17 13:43:11.348549",
+ "modified_by": "Administrator",
+ "module": "Marketplace Integration",
+ "name": "Lazada Seller",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
