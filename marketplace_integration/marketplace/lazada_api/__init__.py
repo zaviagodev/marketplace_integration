@@ -12,7 +12,7 @@ def extract_response(response):
     raise Exception(response.body)
 
 class LazadaClient:
-    def __init__(self, url):
+    def __init__(self, url, ):
         app_manager = frappe.get_doc("Marketplace Management")
         app_key = app_manager.client_id
         app_secret = app_manager.client_secret
@@ -20,7 +20,7 @@ class LazadaClient:
         self.client = LazopClient(url, app_key, app_secret)
         marketplace_integration = frappe.get_single("Marketplace integration")
         # self.access_token = marketplace_integration.get_password("lazada_access_token")
-        self.access_token = "50000700424ySYdbrMjTBjmPvRqaZ2fvjhwZ1552d452UuebihPgNyzkH6oX2AWw"
+        self.access_token = "50000700518VnKeqMfwjmBQXmUaZzj1896ffaeteopgrRiYghwdNU0inFmBmkNYD"
 
     def execute(self, request):
         return self.client.execute(request, self.access_token)

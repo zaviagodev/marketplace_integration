@@ -1,0 +1,78 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-10-18 12:31:46.740205",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "image_column",
+  "product_name",
+  "description",
+  "image",
+  "status",
+  "created_at",
+  "updated_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "image_column",
+   "fieldtype": "Column Break",
+   "label": "Prodcut"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description "
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Image",
+   "label": "Image"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "created_at",
+   "fieldtype": "Datetime",
+   "label": "Created at"
+  },
+  {
+   "fieldname": "updated_at",
+   "fieldtype": "Datetime",
+   "label": "Updated at"
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "label": "Name"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_virtual": 1,
+ "links": [],
+ "modified": "2024-10-18 15:33:03.339481",
+ "modified_by": "Administrator",
+ "module": "Marketplace Integration",
+ "name": "Lazada Items",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
