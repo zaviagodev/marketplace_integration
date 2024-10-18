@@ -700,9 +700,10 @@ class ShopeeMarketplaceClient:
 
     def create_sales_order(self, ordersn, order, customer_key, expense):
     
-        if frappe.db.exists("Sales Order", {"marketplace_order_number": ordersn}):
+        try:
+            existing_doc = frappe.get_doc("Sales Order", {"marketplace_order_number": order['order_sn']})
             return existing_doc.name
-        else:
+        except frappe.DoesNotExistError:
             expense = self.get_payment_details(ordersn)
             new_order = frappe.new_doc('Sales Order')
             new_order.customer = customer_key
