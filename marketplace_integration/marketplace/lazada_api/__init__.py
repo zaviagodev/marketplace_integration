@@ -33,12 +33,13 @@ class LazadaClient:
 
         return extract_response(response)
 
-    def get_products(self, criteria, limit=10):
+    def get_products(self, criteria, limit=10, offset= 0):
         request = LazopRequest("/products/get", "GET")
 
         for key, value in criteria.items():
             quest.add_api_param(key, value)
         request.add_api_param("limit", limit)
+        request.add_api_param("offset", offset)
 
         response = self.execute(request)
 

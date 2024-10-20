@@ -11,7 +11,8 @@
   "image",
   "status",
   "created_at",
-  "updated_at"
+  "updated_at",
+  "skus"
  ],
  "fields": [
   {
@@ -21,7 +22,7 @@
   },
   {
    "fieldname": "description",
-   "fieldtype": "Text",
+   "fieldtype": "HTML",
    "label": "Description "
   },
   {
@@ -48,12 +49,18 @@
    "fieldname": "product_name",
    "fieldtype": "Data",
    "label": "Name"
+  },
+  {
+   "fieldname": "skus",
+   "fieldtype": "Table",
+   "label": "Skus",
+   "options": "Lazada SKUs"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_virtual": 1,
  "links": [],
- "modified": "2024-10-18 15:33:03.339481",
+ "modified": "2024-10-21 00:45:48.826531",
  "modified_by": "Administrator",
  "module": "Marketplace Integration",
  "name": "Lazada Items",
