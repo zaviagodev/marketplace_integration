@@ -5,8 +5,11 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "product_info_section",
   "image_column",
+  "item_id",
   "product_name",
+  "short_description",
   "description",
   "image",
   "status",
@@ -22,7 +25,7 @@
   },
   {
    "fieldname": "description",
-   "fieldtype": "HTML",
+   "fieldtype": "Code",
    "label": "Description "
   },
   {
@@ -33,17 +36,20 @@
   {
    "fieldname": "status",
    "fieldtype": "Data",
-   "label": "Status"
+   "label": "Status",
+   "read_only": 1
   },
   {
    "fieldname": "created_at",
    "fieldtype": "Datetime",
-   "label": "Created at"
+   "label": "Created at",
+   "read_only": 1
   },
   {
    "fieldname": "updated_at",
    "fieldtype": "Datetime",
-   "label": "Updated at"
+   "label": "Updated at",
+   "read_only": 1
   },
   {
    "fieldname": "product_name",
@@ -55,12 +61,28 @@
    "fieldtype": "Table",
    "label": "Skus",
    "options": "Lazada SKUs"
+  },
+  {
+   "fieldname": "product_info_section",
+   "fieldtype": "Section Break",
+   "label": "Product Info"
+  },
+  {
+   "fieldname": "item_id",
+   "fieldtype": "Data",
+   "label": "Item ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "short_description",
+   "fieldtype": "Long Text",
+   "label": "Short Description"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_virtual": 1,
  "links": [],
- "modified": "2024-10-21 00:45:48.826531",
+ "modified": "2024-10-21 12:53:57.634331",
  "modified_by": "Administrator",
  "module": "Marketplace Integration",
  "name": "Lazada Items",

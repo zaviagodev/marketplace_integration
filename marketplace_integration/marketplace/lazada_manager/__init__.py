@@ -5,6 +5,7 @@ class LazadaSourceManager:
     def __init__(self):
         self.client = LazadaClient("https://api.lazada.co.th/rest")
         self.products = self._fetch_products()
+        self.offset = 0
 
     # If seller_id is none fetch from all the shops by default
     def _fetch_products(self, seller_id = None):
@@ -25,6 +26,8 @@ class LazadaSourceManager:
                         "created_at": datetime.fromtimestamp(int(item.get("created_time"))/1000),
                         "updated_at": datetime.fromtimestamp(int(item.get("updated_time"))/1000),
                         "images": item.get("images")[0],
+                        "item_id": item.get("item_id"),
+                        "short_description": item_attributes.get("short_description"),
                         "description": item_attributes.get("description"),
                         "name": product_name,
                         "skus": item.get("skus"),
